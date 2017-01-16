@@ -972,3 +972,37 @@ class ModuleWrapper(use_metaclass(CachedMetaClass, tree.Module, Wrapper)):
 
     def __repr__(self):
         return "<%s: %s>" % (type(self).__name__, self._module)
+
+
+class ImplicitNSWrapper(ModuleWrapper):
+    """
+    Extends ModuleWrapper to provide support for implcit namespace packages
+    """
+    def __init__(self, evaluator, module, parent_module=None, implicit_ns_info=None):
+        self.implicit_ns_info = implicit_ns_info
+        super(ImplicitNSWrapper, self).__init__(evaluator, module, parent_module)
+
+    def py__package__(self):
+        """Return the fullname
+        """
+        return self.implicit_ns_info.name
+
+    @property
+    def py__path__(self):
+        return lambda: [self.implicit_ns_info]
+
+    @memoize_default()
+    def _sub_modules_dict(self):
+        names = {}
+
+        paths = self.implicit_ns_info.paths
+        file_names = chain.from_iterable(os.listdir(path) for path in paths)
+        mods = [file_name.rpartition('.')[0] if '.' in file_name else file_name for file_name in file_names]
+
+        for name in mods:
+            fake_n = helpers.FakeName(name)
+            # It's obviously a relative import to the current module.
+            imp = helpers.FakeImport(fake_n, self, level=1)
+            fake_n.parent = imp
+            names[name] = [fake_n]
+        return names

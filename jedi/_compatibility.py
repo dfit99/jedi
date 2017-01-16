@@ -31,8 +31,32 @@ class DummyFile(object):
         del self.loader
 
 
-def find_module_py33(string, path=None):
-    loader = importlib.machinery.PathFinder.find_module(string, path)
+def find_module_py34(string, path=None):
+    implicit_namespace_pkg = False
+    spec = None
+    loader = None
+
+    if isinstance(path, ImplicitNSInfo):
+        old_dotted_path = path.name
+        path = path.paths
+    spec = importlib.machinery.PathFinder.find_spec(string, path)
+    if hasattr(spec, 'origin'):
+        origin = spec.origin
+        implicit_namespace_pkg = origin == 'namespace'
+
+    # We try to disambiguate implicit namespace pkgs with non implicit namespace pkgs
+    if implicit_namespace_pkg:
+        fullname = string if not path else old_dotted_path + '.' + string
+        implicit_ns_info = ImplicitNSInfo(fullname, spec.submodule_search_locations._path)
+        return None, implicit_ns_info, False
+
+    # we have found the tail end of the dotted path
+    if hasattr(spec, 'loader'):
+        loader = spec.loader
+    return find_module_py33(string, path, loader)
+
+def find_module_py33(string, path=None, loader=None):
+    loader = loader or importlib.machinery.PathFinder.find_module(string, path)
 
     if loader is None and path is None:  # Fallback to find builtins
         try:
@@ -118,6 +142,7 @@ def find_module_pre_py33(string, path=None):
 
 
 find_module = find_module_py33 if is_py33 else find_module_pre_py33
+find_module = find_module_py34 if is_py34  else find_module
 find_module.__doc__ = """
 Provides information about a module.
 
@@ -128,6 +153,12 @@ or the name of the module if it is a builtin one and a boolean indicating
 if the module is contained in a package.
 """
 
+
+class ImplicitNSInfo(object):
+    """Stores information returned from an implicit namespace spec"""
+    def __init__(self, name, paths):
+        self.name = name
+        self.paths = paths
 
 # unicode function
 try:

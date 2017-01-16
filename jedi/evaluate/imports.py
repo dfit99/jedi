@@ -17,7 +17,7 @@ import pkgutil
 import sys
 from itertools import chain
 
-from jedi._compatibility import find_module, unicode
+from jedi._compatibility import find_module, unicode, ImplicitNSInfo
 from jedi import common
 from jedi import debug
 from jedi.parser import fast
@@ -299,8 +299,10 @@ class Importer(object):
                     # At the moment we are only using one path. So this is
                     # not important to be correct.
                     try:
-                        module_file, module_path, is_pkg = \
-                            find_module(import_parts[-1], [path])
+                        if not isinstance(path, ImplicitNSInfo):
+                            path = [path]
+                        module_file, module_path, is_pkg= \
+                            find_module(import_parts[-1], path)
                         break
                     except ImportError:
                         module_path = None
@@ -336,7 +338,13 @@ class Importer(object):
             source = module_file.read()
             module_file.close()
 
-        if module_file is None and not module_path.endswith(('.py', '.zip', '.egg')):
+        if isinstance(module_path, ImplicitNSInfo):
+            from jedi.evaluate.representation import ImplicitNSWrapper
+            p = fast.FastParser(self._evaluator.grammar,
+                            common.source_to_unicode(''), '')
+            module = ImplicitNSWrapper(self._evaluator, p.module, parent_module,
+                                       implicit_ns_info=module_path)
+        elif module_file is None and not module_path.endswith(('.py', '.zip', '.egg')):
             module = compiled.load_module(self._evaluator, module_path)
         else:
             module = _load_module(self._evaluator, module_path, source, sys_path, parent_module)
@@ -400,9 +408,15 @@ class Importer(object):
                 if not scope.type == 'file_input':  # not a module
                     continue
 
+                from jedi.evaluate.representation import ImplicitNSWrapper
                 # namespace packages
                 if isinstance(scope, tree.Module) and scope.path.endswith('__init__.py'):
                     paths = scope.py__path__()
+                    names += self._get_module_names(paths)
+
+                # implicit namespace packages
+                elif isinstance(scope, tree.Module) and isinstance(scope, ImplicitNSWrapper):
+                    paths = scope.implicit_ns_info.paths
                     names += self._get_module_names(paths)
 
                 if only_modules:
